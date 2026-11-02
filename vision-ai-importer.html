@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>Vision AI — Nhập bản sao lưu</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#080d19;--panel:#111a2c;--line:#2b3952;--muted:#a3b2c9;--text:#f4f7ff;--a:#71e0c1}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(#14213a,#080d19 55%);color:var(--text);font:16px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+main,header,footer{max-width:850px;margin:auto;padding:18px 15px}header{padding-top:28px}.eyebrow{color:var(--a);font-size:12px;letter-spacing:.12em;font-weight:800}h1{font-size:clamp(26px,7vw,38px);line-height:1.1}.panel{background:#111a2cf2;border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}.muted{color:var(--muted)}label{display:block;font-size:13px;font-weight:700;margin:12px 0 6px}input{width:100%;background:#091222;border:1px solid #34435e;color:var(--text);padding:12px;border-radius:10px;font:inherit}.btn{border:1px solid var(--line);border-radius:11px;padding:11px 14px;font:inherit;font-weight:750;cursor:pointer;background:#18253a;color:var(--text);margin:5px 4px 0 0}.primary{background:var(--a);color:#052019;border-color:var(--a)}.btn:disabled{opacity:.45;cursor:not-allowed}.status{background:#091525;border-radius:10px;padding:11px;margin-top:10px;color:#c5d4eb;white-space:pre-wrap;overflow-wrap:anywhere}.ok{color:#9ff3d7}.err{color:#ffc0c0}.warn{background:#2b2416;border:1px solid #6e5830;color:#ffe7ad;border-radius:12px;padding:12px;font-size:13px}.hidden{display:none!important}progress{width:100%;height:16px;margin-top:12px}ul{padding-left:22px}footer{font-size:12px;color:#8292ac}
+</style>
+</head>
+<body>
+<header><div class="eyebrow">VISION AI · CÔNG CỤ NHẬP DỮ LIỆU RIÊNG</div><h1>Nhập bản sao lưu JSON</h1><p class="muted">Công cụ độc lập. Không chỉnh sửa trang Vision AI chính và không xóa dữ liệu trên iPhone.</p></header>
+<main>
+<div class="warn"><b>Quan trọng:</b> Chỉ chọn đúng file <b>vision-ai-backup.json</b> đã xuất từ iPhone. File được đọc ngay trong trình duyệt này; không gửi file lên ChatGPT. Hãy chỉ nhập dữ liệu bạn có quyền lưu và sử dụng.</div>
+<section class="panel">
+<h2>1. Chọn bản sao lưu</h2>
+<label for="backup">Tệp JSON trên iPhone</label><input id="backup" type="file" accept="application/json,.json">
+<div id="preview" class="status">Chưa chọn tệp.</div>
+</section>
+<section class="panel">
+<h2>2. Đăng nhập Supabase</h2>
+<label for="email">Email tài khoản Vision AI</label><input id="email" type="email" autocomplete="username">
+<label for="password">Mật khẩu</label><input id="password" type="password" autocomplete="current-password">
+<button class="btn primary" id="login">Đăng nhập</button><button class="btn" id="logout" disabled>Đăng xuất</button>
+<div id="authStatus" class="status">Chưa đăng nhập.</div>
+</section>
+<section class="panel">
+<h2>3. Kiểm tra và nhập</h2>
+<p class="muted">Hệ thống sẽ kiểm tra SĐT trùng chính xác trước khi tạo hồ sơ. Hồ sơ trùng sẽ được bỏ qua, không ghi đè. Không có thao tác xóa hàng loạt.</p>
+<button class="btn primary" id="start" disabled>Bắt đầu nhập dữ liệu</button><button class="btn" id="stop" disabled>Dừng sau hồ sơ hiện tại</button>
+<progress id="progress" max="100" value="0" class="hidden"></progress>
+<div id="runStatus" class="status">Chưa bắt đầu.</div><ul id="log"></ul>
+</section>
+</main>
+<footer>Vision AI backup importer · Dùng riêng cho việc chuyển dữ liệu cũ sang Supabase.</footer>
+<script>
+const URL="https://bbxxqfgbngglqfzqtbqi.supabase.co";
+const KEY="sb_publishable_BBAvmU84AmE7KkMtlMFqQg_wydjLdxt";
+const client=window.supabase.createClient(URL,KEY);
+const $=id=>document.getElementById(id);
+let records=[],session=null,stopRequested=false,running=false;
+function status(id,text,kind=""){const e=$(id);e.textContent=text;e.className="status "+kind}
+function phoneNorm(v){let d=String(v||"").replace(/\D/g,"");if(d.startsWith("0084"))d="0"+d.slice(4);else if(d.startsWith("84")&&d.length>=11)d="0"+d.slice(2);return d}
+function validCoords(a,b){return a!==null&&b!==null&&a!==""&&b!==""&&Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&Number(a)>=-90&&Number(a)<=90&&Number(b)>=-180&&Number(b)<=180}
+function decodeImage(dataUrl){if(typeof dataUrl!=="string"||!dataUrl.startsWith("data:"))throw Error("Ảnh không đúng dạng data URL");const m=dataUrl.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);if(!m)throw Error("Không đọc được dữ liệu ảnh base64");const mime=m[1].toLowerCase();if(!["image/jpeg","image/png","image/webp","image/heic"].includes(mime))throw Error("Định dạng ảnh không hỗ trợ: "+mime);const raw=atob(m[2].replace(/\s/g,""));const bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return new Blob([bytes],{type:mime})}
+async function callEdge(name,body){if(!session)throw Error("Phiên đăng nhập hết hạn");const res=await fetch(URL+"/functions/v1/"+name,{method:"POST",headers:{"Authorization":"Bearer "+session.access_token,"apikey":KEY,"Content-Type":"application/json"},body:JSON.stringify(body)});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||"Lỗi máy chủ "+res.status);return data}
+function validRecord(r){return !!(r&&r.id&&String(r.name||"").trim()&&String(r.address||"").trim()&&validCoords(r.lat,r.lng)&&r.image)}
+$("backup").onchange=async e=>{records=[];try{const f=e.target.files&&e.target.files[0];if(!f)throw Error("Chưa chọn tệp");if(f.size>250*1024*1024)throw Error("File quá lớn (giới hạn công cụ 250 MB)");const parsed=JSON.parse(await f.text());if(parsed.version!==1||!Array.isArray(parsed.records))throw Error("Không đúng định dạng Vision AI backup version 1");records=parsed.records;const good=records.filter(validRecord).length;status("preview","Đã đọc: "+records.length+" hồ sơ.\nĐủ trường cần thiết: "+good+".\nThiếu/sai trường: "+(records.length-good)+".\nChưa có dữ liệu nào được gửi lên Supabase.",good===records.length?"ok":"warn");$("start").disabled=!(good>0&&session&&!running)}catch(err){status("preview","Không đọc được file: "+err.message,"err");$("start").disabled=true}};
+$("login").onclick=async()=>{try{const {data,error}=await client.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});if(error)throw error;session=data.session;const {data:p,error:pe}=await client.from("profiles").select("role,account_status").eq("id",session.user.id).single();if(pe)throw pe;if(p.account_status!=="active")throw Error("Tài khoản đang tạm ngưng");status("authStatus","Đăng nhập thành công. Vai trò: "+p.role,"ok");$("logout").disabled=false;$("start").disabled=!(records.some(validRecord)&&!running)}catch(err){session=null;status("authStatus","Đăng nhập thất bại: "+err.message,"err")}};
+$("logout").onclick=async()=>{await client.auth.signOut();session=null;$("start").disabled=true;$("logout").disabled=true;status("authStatus","Đã đăng xuất.")};
+$("stop").onclick=()=>{stopRequested=true;status("runStatus","Đã yêu cầu dừng. Hệ thống sẽ dừng sau hồ sơ đang xử lý.")};
+function logLine(t,kind=""){const li=document.createElement("li");li.textContent=t;if(kind==="err")li.style.color="#ffc0c0";if(kind==="ok")li.style.color="#9ff3d7";$("log").append(li)}
+$("start").onclick=async()=>{if(running||!session)return;const good=records.filter(validRecord);if(!good.length)return;running=true;stopRequested=false;$("log").replaceChildren();$("start").disabled=true;$("stop").disabled=false;$("progress").classList.remove("hidden");let done=0,added=0,skipped=0,failed=0,partial=0;
+for(let i=0;i<records.length;i++){const r=records[i];if(stopRequested)break;if(!validRecord(r)){failed++;logLine("Bỏ qua hồ sơ #"+(i+1)+": thiếu mã/tên, địa chỉ, GPS hợp lệ hoặc ảnh.","err");done++;$("progress").value=done/records.length*100;continue}
+let houseId=null,created=false;
+try{
+const phone=String(r.phone||"").trim(),normalized=phoneNorm(phone);
+if(normalized.length>=9){const {data:dups,error}=await client.rpc("search_house_profiles",{p_query:normalized});if(error)throw error;if((dups||[]).some(x=>phoneNorm(x.phone)===normalized)){skipped++;logLine("Bỏ qua "+r.name+": SĐT đã có hồ sơ trên máy chủ (không ghi đè).");done++;$("progress").value=done/records.length*100;continue}}
+const image=decodeImage(r.image);if(image.size>10*1024*1024)throw Error("Ảnh vượt quá 10 MB");
+const {data:house,error:he}=await client.from("house_profiles").insert({label:String(r.name).trim().slice(0,100),phone:phone||null,phone_normalized:normalized||null,address_text:String(r.address).trim().slice(0,500),latitude:Number(r.lat),longitude:Number(r.lng),notes:null,created_by:session.user.id}).select("id").single();if(he)throw he;houseId=house.id;created=true;
+const signed=await callEdge("vision-image-upload-url",{house_id:houseId,content_type:image.type});
+const {error:upErr}=await client.storage.from("vision-ai-images").uploadToSignedUrl(signed.storage_path,signed.upload_token,image,{contentType:image.type,upsert:false});if(upErr)throw upErr;
+const {error:metaErr}=await client.from("house_images").insert({house_id:houseId,storage_path:signed.storage_path,uploaded_by:session.user.id});if(metaErr)throw metaErr;
+added++;logLine("Đã nhập: "+r.name+" · "+houseId,"ok");
+}catch(err){failed++;if(created){partial++;logLine("Hồ sơ "+r.name+" đã tạo nhưng ảnh/chặng sau bị lỗi. ID: "+houseId+" · "+err.message,"err")}else logLine("Lỗi "+r.name+": "+err.message,"err")}
+done++;$("progress").value=done/records.length*100;$("runStatus").textContent="Đang xử lý "+done+"/"+records.length+" · Thành công "+added+" · Trùng bỏ qua "+skipped+" · Lỗi "+failed;
+}
+running=false;$("stop").disabled=true;$("start").disabled=!session;
+status("runStatus",(stopRequested?"Đã dừng theo yêu cầu. ":"Đã kết thúc lượt nhập. ")+"\nTổng hồ sơ trong file: "+records.length+"\nĐã nhập đủ hồ sơ và ảnh: "+added+"\nBỏ qua do trùng SĐT: "+skipped+"\nLỗi: "+failed+"\nHồ sơ có thể đã tạo nhưng ảnh chưa hoàn tất: "+partial+"\nKhông xóa hay ghi đè hồ sơ nào.",failed||partial?"warn":"ok");
+};
+client.auth.onAuthStateChange((_event,s)=>{session=s;$("start").disabled=!(session&&records.some(validRecord)&&!running)});
+</script>
+</body></html>
